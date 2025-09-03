@@ -1,25 +1,22 @@
 FROM python:3.11-slim
 WORKDIR /app
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements and install dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend files but exclude .env
-COPY backend/*.py .
-COPY backend/schemas.py .
-COPY backend/auth.py .
-COPY backend/models.py .
-COPY backend/database.py .
-COPY backend/semantic_search.py .
-COPY backend/main.py .
-
+# Copy the entire backend and frontend directories
+# .dockerignore will prevent .env and other unwanted files from being copied
+COPY backend/ .
 COPY frontend/ ./frontend/
 
-EXPOSE 8000
-CMD ["uvicorn", "main:socket_app", "--host", "0.0.0.0", "--port", "8000"]
+# Expose port and set the command
+EXPOSE 10000
+CMD ["sh", "-c", "uvicorn main:socket_app --host 0.0.0.0 --port ${PORT}"]

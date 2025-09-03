@@ -22,9 +22,6 @@ services:
     environment:
       DATABASE_URL: postgresql://chatuser:chatpass@db:5432/chatapp
       SECRET_KEY: your-super-secret-jwt-key-change-this-in-production
-    volumes:
-      - ./backend:/app
-      - ./frontend:/app/frontend
 
 volumes:
   postgres_data:
