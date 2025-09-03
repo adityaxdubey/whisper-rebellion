@@ -24,6 +24,14 @@
             <div class="chat-header">
                 <h3 id="chatWith">Select a rebel to start chatting</h3>
             </div>
+            <!-- Add this after the chat-header div -->
+            <div class="search-container">
+                <div class="search-input">
+                    <input type="text" id="searchInput" placeholder="Search messages by meaning... (e.g., 'homework help')">
+                    <button onclick="performSemanticSearch()" id="searchButton">🔍 Search</button>
+                </div>
+                <div id="searchResults" class="search-results hidden"></div>
+            </div>
             
             <div class="messages-container" id="messagesContainer">
                 <div class="welcome-message">
@@ -125,12 +133,12 @@
                     <div class="user-name">${user.name}</div>
                     <div class="user-email">${user.email}</div>
                 `;
-                userEl.onclick = () => selectUser(user);
+                userEl.onclick = (event) => selectUser(user, event); // Pass event parameter
                 usersList.appendChild(userEl);
             });
         }
 
-        async function selectUser(user) {
+        async function selectUser(user, event) { // Add event parameter
             selectedUser = user;
             document.getElementById('chatWith').textContent = `Chatting with ${user.name}`;
             
@@ -144,7 +152,9 @@
 
             // Update active user
             document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-            event.currentTarget.classList.add('active');
+            if (event && event.currentTarget) { // Check if event exists
+                event.currentTarget.classList.add('active');
+            }
         }
 
         async function loadMessages(userId) {
@@ -220,6 +230,111 @@
             localStorage.removeItem('user');
             window.location.href = '/';
         }
+
+        async function performSemanticSearch() {
+            const searchInput = document.getElementById('searchInput');
+            const searchResults = document.getElementById('searchResults');
+            const query = searchInput.value.trim();
+
+            // Ensure token is present
+            if (!token) {
+                token = localStorage.getItem('token');
+            }
+
+            console.log('[UI] performSemanticSearch called', { query, selectedUser, tokenPresent: !!token });
+
+            if (!query) {
+                searchResults.innerHTML = '<div class="no-results">Please enter a search query.</div>';
+                searchResults.classList.remove('hidden');
+                return;
+            }
+
+            const targetUserId = selectedUser ? selectedUser.id : 0;
+            const url = `${API_URL}/semantic-search?userId=${targetUserId}&q=${encodeURIComponent(query)}&limit=10`;
+            console.log('[UI] Fetching:', url);
+
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                console.log('[UI] Response:', response.status, response.statusText);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('[UI] Data:', data);
+                    displaySearchResults(data);
+                } else {
+                    const text = await response.text();
+                    console.error('Search failed:', response.status, text);
+                    searchResults.innerHTML = `<div class="error">Search failed (${response.status}).</div>`;
+                    searchResults.classList.remove('hidden');
+
+                    if (response.status === 401 || response.status === 403) {
+                        logout();
+                    }
+                }
+            } catch (error) {
+                console.error('Search error:', error);
+                searchResults.innerHTML = '<div class="error">Search error. Please try again.</div>';
+                searchResults.classList.remove('hidden');
+            }
+        }
+
+        function displaySearchResults(data) {
+            const searchResults = document.getElementById('searchResults');
+            
+            if (data.results.length === 0) {
+                searchResults.innerHTML = '<div class="no-results">No messages found matching your search.</div>';
+            } else {
+                let resultsHTML = `<div class="search-header">Found ${data.count} results for "${data.query}"</div>`;
+                
+                data.results.forEach(result => {
+                    const time = new Date(result.created_at).toLocaleString();
+                    const score = (result.similarity_score * 100).toFixed(1);
+                    
+                    resultsHTML += `
+                        <div class="search-result" onclick="scrollToMessage(${result.id})">
+                            <div class="result-message">${result.message}</div>
+                            <div class="result-meta">
+                                From: ${result.sender_name} • ${time} • Match: ${score}%
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                searchResults.innerHTML = resultsHTML;
+            }
+            
+            searchResults.classList.remove('hidden');
+        }
+
+        function scrollToMessage(messageId) {
+            // This is a simplified version - in a more complex app, 
+            // you might need to load more messages or navigate to the right conversation
+            console.log(`Would scroll to message ${messageId}`);
+        }
+
+        // Hide search results when clicking elsewhere
+        document.addEventListener('click', function(e) {
+            const searchContainer = document.querySelector('.search-container');
+            const searchResults = document.getElementById('searchResults');
+            
+            if (!searchContainer.contains(e.target)) {
+                searchResults.classList.add('hidden');
+            }
+        });
+
+        // Search on Enter key
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performSemanticSearch();
+                }
+            });
+        });
     </script>
 </body>
 </html>

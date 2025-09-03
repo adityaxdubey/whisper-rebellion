@@ -7,79 +7,50 @@
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .container {
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
+    height: 100vh;
     padding: 20px;
 }
 
-.auth-container {
-    background: rgba(255, 255, 255, 0.95);
+.auth-form {
+    background: white;
     padding: 40px;
-    border-radius: 20px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
     width: 100%;
     max-width: 400px;
+}
+
+.auth-form h2 {
     text-align: center;
-}
-
-.auth-container h1 {
+    margin-bottom: 30px;
     color: #333;
-    margin-bottom: 10px;
-    font-size: 2.5em;
-}
-
-.subtitle {
-    color: #666;
-    margin-bottom: 30px;
-    font-style: italic;
-}
-
-.auth-tabs {
-    display: flex;
-    margin-bottom: 30px;
-    border-radius: 10px;
-    overflow: hidden;
-    background: #f0f0f0;
-}
-
-.tab-button {
-    flex: 1;
-    padding: 12px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-weight: bold;
-    transition: all 0.3s;
-}
-
-.tab-button.active {
-    background: #667eea;
-    color: white;
-}
-
-.auth-form {
-    display: block;
-}
-
-.auth-form.hidden {
-    display: none;
+    font-size: 28px;
 }
 
 .form-group {
     margin-bottom: 20px;
 }
 
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #555;
+    font-weight: 500;
+}
+
 .form-group input {
     width: 100%;
-    padding: 15px;
-    border: 2px solid #e0e0e0;
-    border-radius: 10px;
+    padding: 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
     font-size: 16px;
     transition: border-color 0.3s;
 }
@@ -89,40 +60,33 @@ body {
     border-color: #667eea;
 }
 
-.auth-form button {
+.btn {
     width: 100%;
-    padding: 15px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    padding: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
-    border-radius: 10px;
+    border-radius: 8px;
     font-size: 16px;
-    font-weight: bold;
+    font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s;
 }
 
-.auth-form button:hover {
+.btn:hover {
     transform: translateY(-2px);
 }
 
-.message {
+.toggle-link {
+    text-align: center;
     margin-top: 20px;
-    padding: 15px;
-    border-radius: 10px;
-    font-weight: bold;
+    color: #666;
 }
 
-.message.success {
-    background: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-}
-
-.message.error {
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+.toggle-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
 }
 
 /* Chat Styles */
@@ -134,28 +98,30 @@ body {
 
 .sidebar {
     width: 300px;
-    background: #2c3e50;
-    color: white;
+    background: #f8f9fa;
+    border-right: 1px solid #e9ecef;
     display: flex;
     flex-direction: column;
 }
 
 .user-info {
     padding: 20px;
-    border-bottom: 1px solid #34495e;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.user-info h3 {
+    color: #333;
+    margin-bottom: 10px;
 }
 
 .logout-btn {
-    padding: 8px 16px;
-    background: #e74c3c;
+    background: #dc3545;
     color: white;
     border: none;
+    padding: 8px 16px;
     border-radius: 5px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 14px;
 }
 
 .users-list {
@@ -166,49 +132,149 @@ body {
 
 .users-list h4 {
     margin-bottom: 15px;
-    color: #bdc3c7;
+    color: #666;
 }
 
 .user-item {
-    padding: 15px;
-    border-radius: 10px;
-    margin-bottom: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: white;
+    border-radius: 8px;
     cursor: pointer;
-    transition: background-color 0.3s;
-    border: 2px solid transparent;
+    transition: background-color 0.2s;
+    border: 1px solid #e9ecef;
 }
 
 .user-item:hover {
-    background: #34495e;
+    background: #e9ecef;
 }
 
 .user-item.active {
-    background: #3498db;
-    border-color: #2980b9;
+    background: #667eea;
+    color: white;
 }
 
 .user-name {
-    font-weight: bold;
-    margin-bottom: 5px;
+    font-weight: 600;
+    margin-bottom: 4px;
 }
 
 .user-email {
-    font-size: 12px;
-    color: #bdc3c7;
+    font-size: 14px;
+    color: #666;
+}
+
+.user-item.active .user-email {
+    color: #ccc;
 }
 
 .chat-main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    background: #f8f9fa;
 }
 
 .chat-header {
     padding: 20px;
-    background: white;
+    background: #667eea;
+    color: white;
     border-bottom: 1px solid #e9ecef;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.chat-header h3 {
+    margin: 0;
+}
+
+/* Search Container Styles */
+.search-container {
+    padding: 15px 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.search-input {
+    display: flex;
+    gap: 10px;
+}
+
+.search-input input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.search-input button {
+    padding: 10px 15px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.search-input button:hover {
+    background: #218838;
+}
+
+.search-results {
+    margin-top: 10px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.search-results.hidden {
+    display: none;
+}
+
+.search-header {
+    padding: 10px;
+    background: #f8f9fa;
+    font-weight: bold;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 14px;
+}
+
+.search-result {
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.search-result:hover {
+    background: #f8f9fa;
+}
+
+.search-result:last-child {
+    border-bottom: none;
+}
+
+.result-message {
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.result-meta {
+    font-size: 12px;
+    color: #666;
+}
+
+.no-results, .error {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+}
+
+.error {
+    color: #dc3545;
 }
 
 .messages-container {
@@ -220,8 +286,13 @@ body {
 
 .welcome-message {
     text-align: center;
-    color: #6c757d;
+    color: #666;
     margin-top: 50px;
+}
+
+.welcome-message h2 {
+    margin-bottom: 15px;
+    color: #333;
 }
 
 .message {
@@ -240,31 +311,29 @@ body {
 .message-content {
     padding: 12px 16px;
     border-radius: 18px;
+    margin-bottom: 5px;
     word-wrap: break-word;
 }
 
 .message.own .message-content {
-    background: #007bff;
+    background: #667eea;
     color: white;
-    border-bottom-right-radius: 4px;
 }
 
 .message.other .message-content {
     background: white;
     color: #333;
     border: 1px solid #e9ecef;
-    border-bottom-left-radius: 4px;
 }
 
 .message-info {
-    font-size: 11px;
-    color: #6c757d;
-    margin-top: 5px;
-    text-align: right;
+    font-size: 12px;
+    color: #666;
+    padding: 0 16px;
 }
 
-.message.other .message-info {
-    text-align: left;
+.message.own .message-info {
+    text-align: right;
 }
 
 .message-input-container {
@@ -280,34 +349,33 @@ body {
 
 .message-input input {
     flex: 1;
-    padding: 12px 16px;
-    border: 2px solid #e9ecef;
+    padding: 12px;
+    border: 1px solid #ddd;
     border-radius: 25px;
-    font-size: 14px;
-    outline: none;
+    font-size: 16px;
 }
 
 .message-input input:focus {
-    border-color: #007bff;
+    outline: none;
+    border-color: #667eea;
 }
 
 .message-input button {
     padding: 12px 24px;
-    background: #007bff;
+    background: #667eea;
     color: white;
     border: none;
     border-radius: 25px;
     cursor: pointer;
-    font-weight: bold;
-    transition: background-color 0.3s;
+    font-weight: 600;
 }
 
 .message-input button:hover {
-    background: #0056b3;
+    background: #5a6fd8;
 }
 
 .message-input button:disabled {
-    background: #6c757d;
+    background: #ccc;
     cursor: not-allowed;
 }
 
@@ -323,6 +391,6 @@ body {
     }
     
     .message {
-        max-width: 90%;
+        max-width: 85%;
     }
 }

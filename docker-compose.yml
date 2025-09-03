@@ -2,13 +2,14 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     environment:
       POSTGRES_DB: chatapp
       POSTGRES_USER: chatuser
       POSTGRES_PASSWORD: chatpass
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
 
@@ -24,7 +25,6 @@ services:
     volumes:
       - ./backend:/app
       - ./frontend:/app/frontend
-    command: ["python", "main.py"]
 
 volumes:
   postgres_data:

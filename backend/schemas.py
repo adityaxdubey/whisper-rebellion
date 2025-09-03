@@ -2,31 +2,36 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
 
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     name: str
+    email: EmailStr
+
+class UserCreate(UserBase):
+    password: str
+
+class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-class UserResponse(BaseModel):
+class UserResponse(UserBase):
     id: int
-    name: str
-    email: str
     created_at: datetime
     
     class Config:
         from_attributes = True
 
-class MessageCreate(BaseModel):
-    receiver_id: int
+class MessageBase(BaseModel):
     message: str
 
-class MessageResponse(BaseModel):
+class MessageCreate(MessageBase):
+    receiver_id: int
+
+class MessageResponse(MessageBase):
     id: int
     sender_id: int
     receiver_id: int
-    message: str
     created_at: datetime
-    sender_name: Optional[str] = None
+    sender_name: str
     
     class Config:
         from_attributes = True
@@ -35,7 +40,3 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str

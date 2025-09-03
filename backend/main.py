@@ -8,9 +8,18 @@ import socketio
 import uvicorn
 from typing import List
 from datetime import timedelta
+import logging
+import sys
+from starlette.requests import Request
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from database import get_db, engine, Base
 from models import User, Message
+from semantic_search import semantic_service
+
 from schemas import UserCreate, UserResponse, MessageCreate, MessageResponse, Token, UserLogin
 from auth import get_password_hash, verify_password, create_access_token, verify_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -19,6 +28,14 @@ Base.metadata.create_all(bind=engine)
 
 # FastAPI app
 app = FastAPI(title="High School Rebellion Chat", version="1.0.0")
+
+# Add basic request logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"--> {request.method} {request.url}", flush=True)
+    response = await call_next(request)
+    print(f"<-- {response.status_code} {request.url.path}", flush=True)
+    return response
 
 # Socket.IO server
 sio = socketio.AsyncServer(
@@ -31,7 +48,7 @@ sio = socketio.AsyncServer(
 socket_app = socketio.ASGIApp(sio, app)
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+app.mount("/static", StaticFiles(directory="../frontend"), name="static")
 
 # Store active connections
 active_connections = {}
@@ -45,11 +62,11 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(secu
 
 @app.get("/")
 async def root():
-    return FileResponse('frontend/index.html')
+    return FileResponse('../frontend/index.html')
 
 @app.get("/chat")
 async def chat():
-    return FileResponse('frontend/chat.html')
+    return FileResponse('../frontend/chat.html')
 
 # User Registration
 @app.post("/users", response_model=UserResponse)
@@ -116,6 +133,12 @@ def send_message(message: MessageCreate, db: Session = Depends(get_db), current_
     db.commit()
     db.refresh(db_message)
     
+    # Index for semantic search
+    try:
+        semantic_service.index_message(message.message, db_message.id, db)
+    except Exception as e:
+        print(f"Indexing warning: {e}")
+    
     # Get sender name for response
     sender = db.query(User).filter(User.id == sender_id).first()
     response_message = MessageResponse(
@@ -162,13 +185,139 @@ def get_users(db: Session = Depends(get_db), current_user_id: int = Depends(get_
     users = db.query(User).filter(User.id != current_user_id).all()
     return users
 
+
+@app.get("/semantic-search")
+def semantic_search(userId: int, q: str, limit: int = 10, db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user_id)):
+    print(f"🔍 SEARCH ENDPOINT CALLED", flush=True)
+    print(f"Headers OK, user authenticated as: {current_user_id}", flush=True)
+    print(f"Query params -> userId: {userId}, q: '{q}', limit: {limit}", flush=True)
+
+    target_user_id_for_search = None
+    if userId != 0:
+        # A specific user is targeted, verify they exist
+        target_user = db.query(User).filter(User.id == userId).first()
+        if not target_user:
+            print(f"Target user with ID {userId} not found!", flush=True)
+            raise HTTPException(status_code=404, detail="Target user not found")
+        target_user_id_for_search = userId
+        print(f"Searching messages with user: {target_user.name}", flush=True)
+    else:
+        # userId is 0, search all messages for the current user
+        print("Searching all messages for the current user.", flush=True)
+
+    # Get total message count for debugging
+    user_messages = db.query(Message).filter(
+        or_(Message.sender_id == current_user_id, Message.receiver_id == current_user_id)
+    ).count()
+    print(f"Total messages involving current user: {user_messages}", flush=True)
+    
+    # Let's also check what messages exist
+    all_messages = db.query(Message).all()
+    print(f"All messages in database: {len(all_messages)}", flush=True)
+    for msg in all_messages[:5]:  # Show first 5 messages
+        print(f"  Message {msg.id}: '{msg.message}' (from {msg.sender_id} to {msg.receiver_id})", flush=True)
+    
+    # Pass target_user_id to search function (will be None if searching all)
+    print(f"🔍 Calling search_messages...", flush=True)
+    results = semantic_service.search_messages(current_user_id, q, db, limit, target_user_id_for_search)
+    print(f"🔍 Search completed. Results: {len(results)} matches", flush=True)
+    
+    return {"query": q, "results": results, "count": len(results)}
+
+
+
 # Socket.IO Events
+# Add these imports at the top
+import time
+import psutil
+import threading
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
+
+# Add this after your existing imports
+# Performance monitoring
+class PerformanceMonitor:
+    def __init__(self):
+        self.message_times = deque(maxlen=1000)  # Store last 1000 message processing times
+        self.active_connections = 0
+        self.message_count = 0
+        self.start_time = time.time()
+        self.lock = threading.Lock()
+        
+        # Start monitoring thread
+        self.monitor_thread = threading.Thread(target=self._monitor_system, daemon=True)
+        self.monitor_thread.start()
+    
+    def record_message_processing(self, processing_time: float):
+        with self.lock:
+            self.message_times.append(processing_time)
+            self.message_count += 1
+    
+    def update_connection_count(self, count: int):
+        with self.lock:
+            self.active_connections = count
+    
+    def get_stats(self):
+        with self.lock:
+            if not self.message_times:
+                return {
+                    "uptime_seconds": time.time() - self.start_time,
+                    "total_messages": self.message_count,
+                    "active_connections": self.active_connections,
+                    "avg_processing_time": 0,
+                    "system_resources": self._get_system_resources()
+                }
+            
+            return {
+                "uptime_seconds": time.time() - self.start_time,
+                "total_messages": self.message_count,
+                "active_connections": self.active_connections,
+                "avg_processing_time": sum(self.message_times) / len(self.message_times),
+                "max_processing_time": max(self.message_times),
+                "min_processing_time": min(self.message_times),
+                "messages_per_second": len(self.message_times) / (time.time() - self.start_time),
+                "system_resources": self._get_system_resources()
+            }
+    
+    def _get_system_resources(self):
+        try:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            memory = psutil.virtual_memory()
+            return {
+                "cpu_percent": cpu_percent,
+                "memory_percent": memory.percent,
+                "memory_available_gb": memory.available / (1024**3)
+            }
+        except Exception:
+            return {"error": "Could not get system resources"}
+    
+    def _monitor_system(self):
+        """Background thread to monitor system performance"""
+        while True:
+            try:
+                time.sleep(30)  # Check every 30 seconds
+                stats = self.get_stats()
+                if stats["total_messages"] > 0:
+                    print(f" PERFORMANCE STATS: {stats}", flush=True)
+            except Exception as e:
+                print(f"Monitor error: {e}", flush=True)
+
+# Initialize monitor
+performance_monitor = PerformanceMonitor()
+
+# Add this endpoint to your FastAPI app
+@app.get("/performance")
+def get_performance_stats():
+    """Get current performance statistics"""
+    return performance_monitor.get_stats()
+
 @sio.event
 async def connect(sid, environ, auth):
     if auth and 'token' in auth:
         try:
             user_id = verify_token(auth['token'])
             active_connections[sid] = user_id
+            performance_monitor.update_connection_count(len(active_connections))
             await sio.emit('connected', {'message': 'Connected successfully'}, to=sid)
             print(f"User {user_id} connected with session {sid}")
         except HTTPException:
@@ -180,10 +329,13 @@ async def connect(sid, environ, auth):
 async def disconnect(sid):
     if sid in active_connections:
         user_id = active_connections.pop(sid)
+        performance_monitor.update_connection_count(len(active_connections))
         print(f"User {user_id} disconnected")
 
 @sio.event
 async def send_message(sid, data):
+    start_time = time.time()
+    
     if sid not in active_connections:
         return
     
@@ -206,6 +358,12 @@ async def send_message(sid, data):
         db.commit()
         db.refresh(db_message)
         
+        # Index for semantic search
+        try:
+            semantic_service.index_message(message_text, db_message.id, db)
+        except Exception as e:
+            print(f"Indexing warning: {e}")
+        
         # Get sender name
         sender = db.query(User).filter(User.id == sender_id).first()
         
@@ -226,6 +384,10 @@ async def send_message(sid, data):
         
         # Send confirmation to sender
         await sio.emit('message_sent', message_data, to=sid)
+        
+        # Record performance metrics
+        processing_time = time.time() - start_time
+        performance_monitor.record_message_processing(processing_time)
         
     except Exception as e:
         print(f"Error saving message: {e}")
