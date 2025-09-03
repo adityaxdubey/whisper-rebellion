@@ -16,3 +16,8 @@ numpy==1.24.3
 sentence-transformers==2.2.2
 torch==2.1.0
 transformers==4.35.0
+
+# Postgres + pgvector
+psycopg2-binary==2.9.9
+pgvector==0.2.5
+psutil==5.9.8

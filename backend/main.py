@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, desc
+from sqlalchemy import or_, and_, desc, text
 import socketio
 import uvicorn
 from typing import List
@@ -11,6 +11,9 @@ from datetime import timedelta
 import logging
 import sys
 from starlette.requests import Request
+import os
+from pathlib import Path
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,11 +26,63 @@ from semantic_search import semantic_service
 from schemas import UserCreate, UserResponse, MessageCreate, MessageResponse, Token, UserLogin
 from auth import get_password_hash, verify_password, create_access_token, verify_token, ACCESS_TOKEN_EXPIRE_MINUTES
 
+# Add this missing dependency function
+security = HTTPBearer()
+
+def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> int:
+    """Extract user ID from JWT token"""
+    token = credentials.credentials
+    return verify_token(token)
+
+# Replace the @app.on_event("startup") with modern lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        if USING_PGVECTOR and engine.url.get_backend_name().startswith("postgresql"):
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS messages_embedding_idx
+                    ON messages
+                    USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """))
+                conn.execute(text("ANALYZE messages"))
+            print("pgvector index ensured", flush=True)
+    except Exception as e:
+        print(f"pgvector index setup warning: {e}", flush=True)
+    
+    yield
+    # Shutdown (if needed)
+
+# FastAPI app with lifespan
+app = FastAPI(title="High School Rebellion Chat", version="1.0.0", lifespan=lifespan)
+
+# Resolve frontend path for both local and Docker
+_BACKEND_DIR = Path(__file__).parent
+_CANDIDATES = [
+    _BACKEND_DIR.parent / "frontend",  # local dev: project/frontend
+    _BACKEND_DIR / "frontend",         # docker: /app/frontend
+]
+for _p in _CANDIDATES:
+    if _p.exists():
+        FRONTEND_DIR = str(_p)
+        break
+else:
+    FRONTEND_DIR = str((_BACKEND_DIR / "frontend").resolve())
+
+# Serve static files
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-# FastAPI app
-app = FastAPI(title="High School Rebellion Chat", version="1.0.0")
+# Create pgvector index on embeddings (Postgres only)
+try:
+    from models import USING_PGVECTOR
+except Exception:
+    USING_PGVECTOR = False
 
 # Add basic request logging
 @app.middleware("http")
@@ -41,32 +96,20 @@ async def log_requests(request: Request, call_next):
 sio = socketio.AsyncServer(
     async_mode='asgi',
     cors_allowed_origins="*",
-    logger=True
+    logger=False,           # reduce Socket.IO logs
+    engineio_logger=False   # reduce Engine.IO logs
 )
 
 # Combine FastAPI and Socket.IO
 socket_app = socketio.ASGIApp(sio, app)
 
-# Serve static files
-app.mount("/static", StaticFiles(directory="../frontend"), name="static")
-
-# Store active connections
-active_connections = {}
-
-# Security scheme
-security = HTTPBearer()
-
-def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Extract user ID from JWT token"""
-    return verify_token(credentials.credentials)
-
 @app.get("/")
 async def root():
-    return FileResponse('../frontend/index.html')
+    return FileResponse(str(Path(FRONTEND_DIR) / "index.html"))
 
 @app.get("/chat")
 async def chat():
-    return FileResponse('../frontend/chat.html')
+    return FileResponse(str(Path(FRONTEND_DIR) / "chat.html"))
 
 # User Registration
 @app.post("/users", response_model=UserResponse)
@@ -305,25 +348,37 @@ class PerformanceMonitor:
 # Initialize monitor
 performance_monitor = PerformanceMonitor()
 
+# Track active Socket.IO connections
+active_connections = {}
+
 # Add this endpoint to your FastAPI app
 @app.get("/performance")
 def get_performance_stats():
     """Get current performance statistics"""
     return performance_monitor.get_stats()
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 @sio.event
 async def connect(sid, environ, auth):
-    if auth and 'token' in auth:
-        try:
-            user_id = verify_token(auth['token'])
-            active_connections[sid] = user_id
-            performance_monitor.update_connection_count(len(active_connections))
-            await sio.emit('connected', {'message': 'Connected successfully'}, to=sid)
-            print(f"User {user_id} connected with session {sid}")
-        except HTTPException:
-            await sio.disconnect(sid)
-    else:
-        await sio.disconnect(sid)
+    # Validate token BEFORE accepting the connection; return False to reject handshake cleanly
+    token = None
+    if auth and isinstance(auth, dict):
+        token = auth.get("token")
+    if not token:
+        return False  # reject
+
+    try:
+        user_id = verify_token(token)
+    except HTTPException:
+        return False  # reject
+
+    active_connections[sid] = user_id
+    performance_monitor.update_connection_count(len(active_connections))
+    await sio.emit('connected', {'message': 'Connected successfully'}, to=sid)
+    print(f"User {user_id} connected with session {sid}")
 
 @sio.event
 async def disconnect(sid):

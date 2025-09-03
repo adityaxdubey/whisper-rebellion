@@ -1,6 +1,14 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON
-from database import Base
+from database import Base, engine
 from datetime import datetime
+
+# Try to use pgvector when on Postgres
+try:
+    from pgvector.sqlalchemy import Vector
+    USING_PGVECTOR = engine.url.get_backend_name().startswith("postgresql")
+except Exception:
+    Vector = None
+    USING_PGVECTOR = False
 
 class User(Base):
     __tablename__ = "users"
@@ -19,4 +27,5 @@ class Message(Base):
     receiver_id = Column(Integer, nullable=False)
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    embedding = Column(JSON, nullable=True)
+    # Use pgvector(384) when Postgres is enabled; otherwise JSON fallback
+    embedding = Column(Vector(384), nullable=True) if USING_PGVECTOR and Vector else Column(JSON, nullable=True)

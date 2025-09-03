@@ -25,6 +25,8 @@ class MessageBase(BaseModel):
 
 class MessageCreate(MessageBase):
     receiver_id: int
+    # Accept optional senderId for compatibility with spec; ignore on server (use JWT user)
+    sender_id: Optional[int] = None
 
 class MessageResponse(MessageBase):
     id: int
