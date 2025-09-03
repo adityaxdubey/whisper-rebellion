@@ -10,7 +10,15 @@ RUN apt-get update && apt-get install -y \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ .
+# Copy backend files but exclude .env
+COPY backend/*.py .
+COPY backend/schemas.py .
+COPY backend/auth.py .
+COPY backend/models.py .
+COPY backend/database.py .
+COPY backend/semantic_search.py .
+COPY backend/main.py .
+
 COPY frontend/ ./frontend/
 
 EXPOSE 8000

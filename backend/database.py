@@ -2,12 +2,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import declarative_base
 import os
-from dotenv import load_dotenv, find_dotenv
 
-# Load .env only when DATABASE_URL is not already set (local dev)
-if not os.getenv("DATABASE_URL"):
-    load_dotenv(find_dotenv())  # project .env if present
-    # DO NOT force-load backend/.env in production images
+# NEVER load .env files in production containers
+# Only load if running locally AND no DATABASE_URL exists
+if not os.getenv("DATABASE_URL") and not os.path.exists("/.dockerenv"):
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv())
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./rebellion_chat.db").strip()
 
