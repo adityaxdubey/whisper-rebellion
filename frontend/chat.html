@@ -1,340 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rebellion Chat</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rebellion Chat</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; }
+    .chat-container { display:flex; height:100vh; }
+    .sidebar { width:280px; border-right:1px solid #ddd; padding:10px; overflow:auto; }
+    .chat-main { flex:1; display:flex; flex-direction:column; }
+    .user { padding:8px; border-radius:6px; margin-bottom:6px; cursor:pointer; }
+    .user.active, .user:hover { background:#f0f0f0; }
+    .header { padding:10px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center; }
+    .messages { flex:1; padding:10px; overflow:auto; background:#fafafa; }
+    .msg { margin:6px 0; max-width:70%; padding:8px 10px; border-radius:12px; }
+    .me { background:#d7f7d7; margin-left:auto; }
+    .them { background:#fff; }
+    .composer { display:flex; gap:8px; padding:10px; border-top:1px solid #ddd; }
+    .composer input { flex:1; padding:8px; }
+    .search { display:flex; gap:6px; }
+    .results { border-top:1px dashed #ccc; padding:8px; max-height:200px; overflow:auto; background:white; }
+    .result { padding:6px 0; border-bottom:1px dotted #eee; }
+    small { color:#666; }
+  </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="sidebar">
-            <div class="user-info">
-                <h3 id="currentUser">Loading...</h3>
-                <button onclick="logout()" class="logout-btn">Logout</button>
-            </div>
-            <div class="users-list">
-                <h4>Rebels Online</h4>
-                <div id="usersList"></div>
-            </div>
-        </div>
-
-        <div class="chat-main">
-            <div class="chat-header">
-                <h3 id="chatWith">Select a rebel to start chatting</h3>
-            </div>
-            <!-- Add this after the chat-header div -->
-            <div class="search-container">
-                <div class="search-input">
-                    <input type="text" id="searchInput" placeholder="Search messages by meaning... (e.g., 'homework help')">
-                    <button onclick="performSemanticSearch()" id="searchButton">🔍 Search</button>
-                </div>
-                <div id="searchResults" class="search-results hidden"></div>
-            </div>
-            
-            <div class="messages-container" id="messagesContainer">
-                <div class="welcome-message">
-                    <h2>🚀 Welcome to the Rebellion!</h2>
-                    <p>Choose someone from the sidebar to start your secret conversation.</p>
-                </div>
-            </div>
-
-            <div class="message-input-container" id="messageInputContainer" style="display: none;">
-                <div class="message-input">
-                    <input type="text" id="messageInput" placeholder="Type your rebellious message..." disabled>
-                    <button onclick="sendMessage()" id="sendButton" disabled>Send</button>
-                </div>
-            </div>
-        </div>
+  <div class="chat-container">
+    <div class="sidebar">
+      <h3>People</h3>
+      <div id="users"></div>
     </div>
+    <div class="chat-main">
+      <div class="header">
+        <div>
+          <div id="title">Select a user</div>
+          <small id="me"></small>
+        </div>
+        <div class="search">
+          <input id="q" placeholder="Search messages..." />
+          <button id="searchBtn">Search</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="results" id="results" style="display:none;"></div>
+      <div class="composer">
+        <input id="text" placeholder="Type a message..." />
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
 
-    <script>
-        const API_URL = window.location.origin;
-        let socket;
-        let currentUser;
-        let selectedUser = null;
-        let token;
+  <script>
+    const API_URL = window.location.origin;
+    let socket;
+    let token;
+    let currentUser;
+    let selectedUser = null;
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', async () => {
-            // Check authentication
-            token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/';
-                return;
-            }
+    function ensureAuth() {
+      token = localStorage.getItem('token');
+      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+      if (!token || !currentUser) {
+        alert('Please log in first'); window.location = '/'; return false;
+      }
+      document.getElementById('me').innerText = `You: ${currentUser.name} (id ${currentUser.id})`;
+      return true;
+    }
 
-            currentUser = JSON.parse(localStorage.getItem('user'));
-            document.getElementById('currentUser').textContent = currentUser.name;
+    async function api(path) {
+      const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` }});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
 
-            // Initialize Socket.IO
-            socket = io({
-                auth: {
-                    token: token
-                }
-            });
+    function connectSocket() {
+      socket = io(API_URL, {
+        transports: ["websocket"],
+        auth: { token }
+      });
+      socket.on('connected', () => console.log('Socket connected'));
+      socket.on('new_message', (msg) => {
+        if (!selectedUser) return;
+        const isRelevant = (msg.sender_id === selectedUser.id && msg.receiver_id === currentUser.id);
+        if (isRelevant) appendMessage(msg, false);
+      });
+      socket.on('message_sent', (msg) => {
+        if (!selectedUser) return;
+        if (msg.receiver_id === selectedUser.id) appendMessage(msg, true);
+      });
+    }
 
-            // Socket event listeners
-            socket.on('connected', (data) => {
-                console.log('Connected to server');
-                loadUsers();
-            });
+    async function loadUsers() {
+      const users = await api('/users');
+      displayUsers(users);
+    }
 
-            socket.on('new_message', (data) => {
-                if (selectedUser && (data.sender_id === selectedUser.id || data.receiver_id === selectedUser.id)) {
-                    displayMessage(data);
-                }
-            });
+    function displayUsers(users) {
+      const el = document.getElementById('users');
+      el.innerHTML = '';
+      users.forEach(u => {
+        const div = document.createElement('div');
+        div.className = 'user';
+        div.textContent = `${u.name} (${u.email})`;
+        div.onclick = (e) => selectUser(u, e);
+        div.dataset.uid = u.id;
+        el.appendChild(div);
+      });
+    }
 
-            socket.on('message_sent', (data) => {
-                displayMessage(data);
-            });
+    async function selectUser(user, event) {
+      selectedUser = user;
+      document.getElementById('title').innerText = `Chat with ${user.name}`;
+      document.querySelectorAll('.user').forEach(n => n.classList.remove('active'));
+      event?.currentTarget?.classList?.add('active');
+      document.getElementById('results').style.display = 'none';
+      await loadMessages();
+    }
 
-            socket.on('disconnect', () => {
-                console.log('Disconnected from server');
-            });
+    async function loadMessages() {
+      if (!selectedUser) return;
+      const data = await api(`/messages?userId=${selectedUser.id}&limit=50`);
+      const box = document.getElementById('messages');
+      box.innerHTML = '';
+      data.reverse().forEach(m => appendMessage(m, m.sender_id === currentUser.id));
+      box.scrollTop = box.scrollHeight;
+    }
 
-            // Message input handler
-            document.getElementById('messageInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
-        });
+    function appendMessage(m, mine) {
+      const box = document.getElementById('messages');
+      const div = document.createElement('div');
+      div.className = `msg ${mine ? 'me' : 'them'}`;
+      const when = new Date(m.created_at).toLocaleTimeString();
+      div.innerHTML = `<strong>${m.sender_name || (mine ? 'You' : '')}</strong><br>${m.message}<br><small>${when}</small>`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
 
-        async function loadUsers() {
-            try {
-                const response = await fetch(`${API_URL}/users`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+    async function sendMsg() {
+      if (!selectedUser) return alert('Select a user first');
+      const text = document.getElementById('text').value.trim();
+      if (!text) return;
+      socket.emit('send_message', { receiver_id: selectedUser.id, message: text });
+      document.getElementById('text').value = '';
+    }
 
-                if (response.ok) {
-                    const users = await response.json();
-                    displayUsers(users);
-                } else if (response.status === 401) {
-                    logout();
-                }
-            } catch (error) {
-                console.error('Error loading users:', error);
-            }
-        }
+    async function doSearch() {
+      const q = document.getElementById('q').value.trim();
+      if (!q) return;
+      if (!selectedUser) return alert('Select a user first');
+      const res = await api(`/semantic-search?userId=${selectedUser.id}&q=${encodeURIComponent(q)}&limit=10`);
+      const pane = document.getElementById('results');
+      if (!res.results || !res.results.length) {
+        pane.style.display = 'block';
+        pane.innerHTML = '<em>No matches</em>';
+        return;
+      }
+      pane.style.display = 'block';
+      pane.innerHTML = res.results.map(r => {
+        const when = new Date(r.created_at).toLocaleString();
+        const score = (r.similarity_score ?? 0).toFixed(3);
+        return `<div class="result"><div>${r.message}</div><small>${when} • score ${score}</small></div>`;
+      }).join('');
+    }
 
-        function displayUsers(users) {
-            const usersList = document.getElementById('usersList');
-            usersList.innerHTML = '';
-
-            users.forEach(user => {
-                const userEl = document.createElement('div');
-                userEl.className = 'user-item';
-                userEl.innerHTML = `
-                    <div class="user-name">${user.name}</div>
-                    <div class="user-email">${user.email}</div>
-                `;
-                userEl.onclick = (event) => selectUser(user, event); // Pass event parameter
-                usersList.appendChild(userEl);
-            });
-        }
-
-        async function selectUser(user, event) { // Add event parameter
-            selectedUser = user;
-            document.getElementById('chatWith').textContent = `Chatting with ${user.name}`;
-            
-            // Show message input
-            document.getElementById('messageInputContainer').style.display = 'block';
-            document.getElementById('messageInput').disabled = false;
-            document.getElementById('sendButton').disabled = false;
-
-            // Load chat history
-            await loadMessages(user.id);
-
-            // Update active user
-            document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-            if (event && event.currentTarget) { // Check if event exists
-                event.currentTarget.classList.add('active');
-            }
-        }
-
-        async function loadMessages(userId) {
-            try {
-                const response = await fetch(`${API_URL}/messages?userId=${userId}&limit=50`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (response.ok) {
-                    const messages = await response.json();
-                    displayMessages(messages.reverse());
-                }
-            } catch (error) {
-                console.error('Error loading messages:', error);
-            }
-        }
-
-        function displayMessages(messages) {
-            const container = document.getElementById('messagesContainer');
-            container.innerHTML = '';
-
-            messages.forEach(message => {
-                displayMessage(message);
-            });
-
-            scrollToBottom();
-        }
-
-        function displayMessage(message) {
-            const container = document.getElementById('messagesContainer');
-            const messageEl = document.createElement('div');
-            
-            const isOwn = message.sender_id === currentUser.id;
-            messageEl.className = `message ${isOwn ? 'own' : 'other'}`;
-            
-            const time = new Date(message.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            
-            messageEl.innerHTML = `
-                <div class="message-content">${message.message}</div>
-                <div class="message-info">
-                    ${!isOwn ? message.sender_name : 'You'} • ${time}
-                </div>
-            `;
-
-            container.appendChild(messageEl);
-            scrollToBottom();
-        }
-
-        function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
-
-            if (!message || !selectedUser) return;
-
-            // Send via Socket.IO for real-time delivery
-            socket.emit('send_message', {
-                receiver_id: selectedUser.id,
-                message: message
-            });
-
-            input.value = '';
-        }
-
-        function scrollToBottom() {
-            const container = document.getElementById('messagesContainer');
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function logout() {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/';
-        }
-
-        async function performSemanticSearch() {
-            const searchInput = document.getElementById('searchInput');
-            const searchResults = document.getElementById('searchResults');
-            const query = searchInput.value.trim();
-
-            // Ensure token is present
-            if (!token) {
-                token = localStorage.getItem('token');
-            }
-
-            console.log('[UI] performSemanticSearch called', { query, selectedUser, tokenPresent: !!token });
-
-            if (!query) {
-                searchResults.innerHTML = '<div class="no-results">Please enter a search query.</div>';
-                searchResults.classList.remove('hidden');
-                return;
-            }
-
-            const targetUserId = selectedUser ? selectedUser.id : 0;
-            const url = `${API_URL}/semantic-search?userId=${targetUserId}&q=${encodeURIComponent(query)}&limit=10`;
-            console.log('[UI] Fetching:', url);
-
-            try {
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                console.log('[UI] Response:', response.status, response.statusText);
-
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('[UI] Data:', data);
-                    displaySearchResults(data);
-                } else {
-                    const text = await response.text();
-                    console.error('Search failed:', response.status, text);
-                    searchResults.innerHTML = `<div class="error">Search failed (${response.status}).</div>`;
-                    searchResults.classList.remove('hidden');
-
-                    if (response.status === 401 || response.status === 403) {
-                        logout();
-                    }
-                }
-            } catch (error) {
-                console.error('Search error:', error);
-                searchResults.innerHTML = '<div class="error">Search error. Please try again.</div>';
-                searchResults.classList.remove('hidden');
-            }
-        }
-
-        function displaySearchResults(data) {
-            const searchResults = document.getElementById('searchResults');
-            
-            if (data.results.length === 0) {
-                searchResults.innerHTML = '<div class="no-results">No messages found matching your search.</div>';
-            } else {
-                let resultsHTML = `<div class="search-header">Found ${data.count} results for "${data.query}"</div>`;
-                
-                data.results.forEach(result => {
-                    const time = new Date(result.created_at).toLocaleString();
-                    const score = (result.similarity_score * 100).toFixed(1);
-                    
-                    resultsHTML += `
-                        <div class="search-result" onclick="scrollToMessage(${result.id})">
-                            <div class="result-message">${result.message}</div>
-                            <div class="result-meta">
-                                From: ${result.sender_name} • ${time} • Match: ${score}%
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                searchResults.innerHTML = resultsHTML;
-            }
-            
-            searchResults.classList.remove('hidden');
-        }
-
-        function scrollToMessage(messageId) {
-            // This is a simplified version - in a more complex app, 
-            // you might need to load more messages or navigate to the right conversation
-            console.log(`Would scroll to message ${messageId}`);
-        }
-
-        // Hide search results when clicking elsewhere
-        document.addEventListener('click', function(e) {
-            const searchContainer = document.querySelector('.search-container');
-            const searchResults = document.getElementById('searchResults');
-            
-            if (!searchContainer.contains(e.target)) {
-                searchResults.classList.add('hidden');
-            }
-        });
-
-        // Search on Enter key
-        document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('searchInput').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    performSemanticSearch();
-                }
-            });
-        });
-    </script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (!ensureAuth()) return;
+      connectSocket();
+      await loadUsers();
+      document.getElementById('send').onclick = sendMsg;
+      document.getElementById('text').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+      document.getElementById('searchBtn').onclick = doSearch;
+      document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    });
+  </script>
 </body>
 </html>
