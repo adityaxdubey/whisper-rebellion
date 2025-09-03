@@ -4,13 +4,14 @@ from sqlalchemy.orm import declarative_base
 import os
 from dotenv import load_dotenv, find_dotenv
 
-# Load .env (root and backend/.env)
-load_dotenv(find_dotenv())
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
+# Load .env only when DATABASE_URL is not already set (local dev)
+if not os.getenv("DATABASE_URL"):
+    load_dotenv(find_dotenv())  # project .env if present
+    # DO NOT force-load backend/.env in production images
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./rebellion_chat.db").strip()
 
-# Normalize Postgres URL for SQLAlchemy 2.x
+# Normalize Postgres URL
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 elif DATABASE_URL.startswith("postgresql://") and "+psycopg2" not in DATABASE_URL:
